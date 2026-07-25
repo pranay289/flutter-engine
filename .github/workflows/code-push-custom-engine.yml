@@ -32,6 +32,13 @@ jobs:
         run: |
           cp engine/scripts/standard.gclient .gclient
           gclient sync
+          
+      - name: Verify buildtools
+        run: |
+          ls -la buildtools
+          ls -la buildtools/mac || true
+          ls -la buildtools/mac/gn || true
+          which gn || true
 
       - name: Build Host Release ARM64
         working-directory: engine/src
