@@ -21,7 +21,7 @@ jobs:
       - name: Add depot_tools to PATH
         run: |
           echo "$DEPOT_TOOLS" >> $GITHUB_PATH
-          
+
       - name: Sync
         run: |
           cp engine/scripts/standard.gclient .gclient
@@ -36,11 +36,11 @@ jobs:
           echo "==== GN ===="
           find . -name gn
 
-      - name: Verify depot_tools
-        run: |
-          gclient --version
-          gn --version
-          ninja --version
+      # - name: Verify depot_tools
+      #   run: |
+      #     gclient --version
+      #     gn --version
+      #     ninja --version
 
       - name: Configure gclient
         run: |
