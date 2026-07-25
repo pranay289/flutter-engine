@@ -1,0 +1,65 @@
+name: Build Flutter Engine
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-engine:
+    runs-on: macos-latest
+
+    env:
+      DEPOT_TOOLS: ${{ github.workspace }}/depot_tools
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Clone depot_tools
+        run: |
+          git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git "$DEPOT_TOOLS"
+
+      - name: Add depot_tools to PATH
+        run: |
+          echo "$DEPOT_TOOLS" >> $GITHUB_PATH
+
+      - name: Verify depot_tools
+        run: |
+          gclient --version
+          gn --version
+          ninja --version
+
+      - name: gclient sync
+        run: |
+          cp engine/scripts/standard.gclient .gclient
+          gclient sync
+
+      - name: Build Host Release ARM64
+        working-directory: engine/src
+        run: |
+          ./flutter/tools/gn \
+            --runtime-mode=release \
+            --mac-cpu arm64
+
+          ninja -C out/host_release_arm64
+
+      - name: Build Android Release ARM64
+        working-directory: engine/src
+        run: |
+          ./flutter/tools/gn \
+            --android \
+            --android-cpu arm64 \
+            --runtime-mode=release
+
+          ninja -C out/android_release_arm64
+
+      - name: Upload Host Engine
+        uses: actions/upload-artifact@v4
+        with:
+          name: host_release_arm64
+          path: engine/src/out/host_release_arm64
+
+      - name: Upload Android Engine
+        uses: actions/upload-artifact@v4
+        with:
+          name: android_release_arm64
+          path: engine/src/out/android_release_arm64
