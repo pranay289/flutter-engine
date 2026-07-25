@@ -28,17 +28,33 @@ jobs:
           gn --version
           ninja --version
 
-      - name: gclient sync
+      - name: Configure gclient
         run: |
-          cp engine/scripts/standard.gclient .gclient
-          gclient sync
-          
-      - name: Verify buildtools
+            cp engine/scripts/standard.gclient .gclient
+
+      - name: Sync engine dependencies
         run: |
-          ls -la buildtools
-          ls -la buildtools/mac || true
-          ls -la buildtools/mac/gn || true
-          which gn || true
+            gclient sync --with_branch_heads --with_tags
+
+      - name: Run hooks
+        run: |
+            gclient runhooks
+
+      - name: Verify GN exists
+        run: |
+            pwd
+
+            echo "Repository root"
+            ls
+
+            echo "Engine src"
+            ls engine/src
+
+            echo "GN binary"
+            ls -la engine/src/buildtools/mac/gn || true
+
+            echo "GN executable"
+            file engine/src/buildtools/mac/gn/gn || true
 
       - name: Build Host Release ARM64
         working-directory: engine/src
@@ -49,13 +65,22 @@ jobs:
 
           ninja -C out/host_release_arm64
 
+      - name: Check GN
+        working-directory: engine/src
+        run: |
+            if [ ! -f buildtools/mac/gn/gn ]; then
+            echo "GN NOT FOUND"
+            find .. -name gn -type f
+            exit 1
+            fi
+
       - name: Build Android Release ARM64
         working-directory: engine/src
         run: |
-          ./flutter/tools/gn \
-            --android \
-            --android-cpu arm64 \
-            --runtime-mode=release
+          python3 ./flutter/tools/gn \
+          --runtime-mode=release \
+          --mac-cpu arm64 \
+          --verbose
 
           ninja -C out/android_release_arm64
 
