@@ -21,6 +21,20 @@ jobs:
       - name: Add depot_tools to PATH
         run: |
           echo "$DEPOT_TOOLS" >> $GITHUB_PATH
+          
+      - name: Sync
+        run: |
+          cp engine/scripts/standard.gclient .gclient
+          cat .gclient
+          gclient sync --verbose
+          echo "==== ROOT ===="
+          ls -la
+          echo "==== ENGINE SRC ===="
+          ls -la engine/src
+          echo "==== BUILDTOOLS ===="
+          find . -type d -name buildtools
+          echo "==== GN ===="
+          find . -name gn
 
       - name: Verify depot_tools
         run: |
