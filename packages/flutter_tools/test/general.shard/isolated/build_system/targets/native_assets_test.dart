@@ -54,7 +54,7 @@ void main() {
       defines: <String, String>{
         kBuildMode: BuildMode.profile.cliName,
         kTargetPlatform: TargetPlatform.android.getName(),
-        kAndroidArchs: AndroidArch.arm64_v8a.platformName,
+        kAndroidArchs: CpuArch.arm64.androidPlatformName,
       },
       inputs: <String, String>{},
       artifacts: artifacts,
@@ -104,6 +104,29 @@ void main() {
       expect(
         BuildHooks(buildRunner: buildRunner).build(iosEnvironment),
         throwsA(isA<MissingDefineException>()),
+      );
+    },
+  );
+
+  testUsingContext(
+    'NativeAssets throws error if sdk root is unrecognized iOS SDK',
+    overrides: <Type, Generator>{FeatureFlags: () => TestFeatureFlags(isNativeAssetsEnabled: true)},
+    () async {
+      writePackageConfigFiles(directory: iosEnvironment.projectDir, mainLibName: 'my_app');
+
+      final FlutterNativeAssetsBuildRunner buildRunner = FakeFlutterNativeAssetsBuildRunner(
+        packagesWithNativeAssetsResult: <String>['foo'],
+      );
+
+      iosEnvironment.defines[kSdkRoot] = 'path/to/XROS1.0.sdk';
+      expect(
+        BuildHooks(buildRunner: buildRunner).build(iosEnvironment),
+        throwsToolExit(
+          message:
+              'Unsupported iOS SDK root "path/to/XROS1.0.sdk". Expected an iPhoneOS or iPhoneSimulator SDK. '
+              "Flutter only supports building the iOS Runner for iOS; check the target's Base SDK "
+              '(SDKROOT) and Supported Destinations in Xcode.',
+        ),
       );
     },
   );

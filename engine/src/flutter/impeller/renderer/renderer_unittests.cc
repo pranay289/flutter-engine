@@ -2,6 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <atomic>
+#include <string>
+#include <thread>
+
 #include "flutter/fml/logging.h"
 #include "flutter/fml/time/time_point.h"
 #include "impeller/base/validation.h"
@@ -65,6 +69,57 @@ namespace testing {
 
 using RendererTest = PlaygroundTest;
 INSTANTIATE_PLAYGROUND_SUITE(RendererTest);
+
+TEST_P(RendererTest, PipelineLibraryAllowsConcurrentGetPipeline) {
+  if (GetBackend() == PlaygroundBackend::kOpenGLES ||
+      GetBackend() == PlaygroundBackend::kOpenGLESSDF) {
+    GTEST_SKIP() << "GLES pipelines are created by the reactor thread.";
+  }
+  using VS = BoxFadeVertexShader;
+  using FS = BoxFadeFragmentShader;
+  auto context = GetContext();
+  ASSERT_TRUE(context);
+  auto desc = PipelineBuilder<VS, FS>::MakeDefaultPipelineDescriptor(*context);
+  ASSERT_TRUE(desc.has_value());
+  auto library = context->GetPipelineLibrary();
+  ASSERT_TRUE(library);
+  ASSERT_TRUE(library->GetPipeline(desc.value()).Get());
+
+  constexpr int kVariantCount = 64;
+  auto variant = [&](int i) {
+    PipelineDescriptor result = desc.value();
+    result.SetLabel("Variant " + std::to_string(i));
+    return result;
+  };
+
+  std::atomic_bool done = false;
+  std::thread reader([&] {
+    while (!done) {
+      EXPECT_TRUE(library->HasPipeline(desc.value()));
+      EXPECT_TRUE(library->GetPipeline(desc.value()).IsValid());
+    }
+  });
+  std::thread forward([&] {
+    for (int i = 0; i < kVariantCount; i++) {
+      library->GetPipeline(variant(i));
+    }
+  });
+  std::thread backward([&] {
+    for (int i = kVariantCount - 1; i >= 0; i--) {
+      library->GetPipeline(variant(i));
+    }
+  });
+  forward.join();
+  backward.join();
+  done = true;
+  reader.join();
+
+  for (int i = 0; i < kVariantCount; i++) {
+    auto pipeline = library->GetPipeline(variant(i)).Get();
+    ASSERT_TRUE(pipeline);
+    EXPECT_TRUE(pipeline->IsValid());
+  }
+}
 
 TEST_P(RendererTest, CanCreateBoxPrimitive) {
   using VS = BoxFadeVertexShader;
@@ -1614,6 +1669,39 @@ TEST_P(RendererTest, BindingNullTexturesDoesNotCrash) {
 
   auto pass = command_buffer->CreateRenderPass(target);
   EXPECT_FALSE(FS::BindContents2(*pass, nullptr, sampler));
+}
+
+// Creating and uploading per-layer contents of a 2D array texture. The GLES
+// path requires ES 3.0 and is covered separately in the GLES texture unit
+// tests, so this skips the GLES backends to avoid an ES 2.0 failure.
+TEST_P(RendererTest, CanCreateAndUpload2DArrayTexture) {
+  if (GetBackend() == PlaygroundBackend::kOpenGLES ||
+      GetBackend() == PlaygroundBackend::kOpenGLESSDF) {
+    GTEST_SKIP() << "Covered by the GLES-specific texture array test.";
+  }
+  auto context = GetContext();
+  ASSERT_TRUE(context);
+
+  TextureDescriptor desc;
+  desc.storage_mode = StorageMode::kHostVisible;
+  desc.type = TextureType::kTexture2DArray;
+  desc.format = PixelFormat::kR8G8B8A8UNormInt;
+  desc.size = {2, 2};
+  desc.array_layer_count = 4;
+  desc.mip_count = 1;
+
+  auto texture = context->GetResourceAllocator()->CreateTexture(desc);
+  ASSERT_TRUE(texture);
+  EXPECT_EQ(static_cast<int>(texture->GetTextureDescriptor().array_layer_count),
+            4);
+  EXPECT_TRUE(texture->IsSliceValid(3));
+  EXPECT_FALSE(texture->IsSliceValid(4));
+
+  std::vector<uint8_t> layer(2u * 2u * 4u, 0xFF);
+  for (size_t slice = 0; slice < static_cast<size_t>(desc.array_layer_count);
+       ++slice) {
+    EXPECT_TRUE(texture->SetContents(layer.data(), layer.size(), slice));
+  }
 }
 
 // Clears a single cube map face by attaching it as a render target slice.

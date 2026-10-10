@@ -118,14 +118,6 @@ typedef struct MouseState {
 /// cancellation.
 @property(nonatomic, assign) NSTimeInterval scrollInertiaEventAppKitDeadline;
 
-/// FlutterVSyncClient for touch events delivery frame rate correction.
-///
-/// On promotion devices(eg: iPhone13 Pro), the delivery frame rate of touch events is 60HZ
-/// but the frame rate of rendering is 120HZ, which is different and will leads jitter and laggy.
-/// With this FlutterVSyncClient, it can correct the delivery frame rate of touch events to let it
-/// keep the same with frame rate of rendering.
-@property(nonatomic, strong) FlutterVSyncClient* touchRateCorrectionVSyncClient;
-
 /// The size of the FlutterView's frame, as determined by auto-layout,
 /// before Flutter's custom auto-resizing constraints are applied.
 @property(nonatomic, assign) CGSize sizeBeforeAutoResized;
@@ -365,7 +357,10 @@ typedef struct MouseState {
   _statusBarStyle = UIStatusBarStyleDefault;
 
   _accessibilityFeatures = [[FlutterAccessibilityFeatures alloc] init];
-  _keyboardInsetManager = [[FlutterKeyboardInsetManager alloc] initWithDelegate:self];
+  _displayLinkManager = FlutterDisplayLinkManager.shared;
+  _keyboardInsetManager =
+      [[FlutterKeyboardInsetManager alloc] initWithDelegate:self
+                                         displayLinkManager:_displayLinkManager];
 
   // TODO(cbracken): https://github.com/flutter/flutter/issues/157140
   // Eliminate method calls in initializers and dealloc.
@@ -750,9 +745,6 @@ static UIView* GetViewOrPlaceholder(UIView* existing_view) {
   // Register internal plugins.
   [self addInternalPlugins];
 
-  // Create a vsync client to correct delivery frame rate of touch events if needed.
-  [self createTouchRateCorrectionVSyncClientIfNeeded];
-
   if (@available(iOS 13.4, *)) {
     _hoverGestureRecognizer =
         [[UIHoverGestureRecognizer alloc] initWithTarget:self action:@selector(hoverEvent:)];
@@ -947,7 +939,6 @@ static UIView* GetViewOrPlaceholder(UIView* existing_view) {
   [self deregisterNotifications];
 
   [self.keyboardInsetManager invalidate];
-  [self invalidateTouchRateCorrectionVSyncClient];
 
   // TODO(cbracken): https://github.com/flutter/flutter/issues/156222
   // Ensure all delegates are weak and remove this.
@@ -1148,9 +1139,6 @@ static flutter::PointerData::DeviceKind DeviceKindFromTouchType(UITouch* touch) 
     }
   }
 
-  // Activate or pause the correction of delivery frame rate of touch events.
-  [self triggerTouchRateCorrectionIfNeeded:touches];
-
   const CGFloat scale = self.flutterScreenIfViewLoaded.scale;
   auto packet =
       std::make_unique<flutter::PointerDataPacket>(touches.count + touches_to_remove_count);
@@ -1304,64 +1292,6 @@ static flutter::PointerData::DeviceKind DeviceKindFromTouchType(UITouch* touch) 
                                                                  viewId:self.viewIdentifier];
 }
 
-#pragma mark - Touch events rate correction
-
-- (void)createTouchRateCorrectionVSyncClientIfNeeded {
-  if (_touchRateCorrectionVSyncClient != nil) {
-    return;
-  }
-
-  double displayRefreshRate = FlutterDisplayLinkManager.shared.displayRefreshRate;
-  const double epsilon = 0.1;
-  if (displayRefreshRate < 60.0 + epsilon) {  // displayRefreshRate <= 60.0
-
-    // If current device's max frame rate is not larger than 60HZ, the delivery rate of touch events
-    // is the same with render vsync rate. So it is unnecessary to create
-    // _touchRateCorrectionVSyncClient to correct touch callback's rate.
-    return;
-  }
-
-  void (^callback)(CFTimeInterval, CFTimeInterval) =
-      ^(CFTimeInterval startTime, CFTimeInterval targetTime) {
-        // Do nothing in this block. Just trigger system to callback touch events with correct rate.
-      };
-  _touchRateCorrectionVSyncClient = [[FlutterVSyncClient alloc]
-                initWithTaskRunner:self.engine.platformTaskRunner
-      isVariableRefreshRateEnabled:FlutterDisplayLinkManager.shared.maxRefreshRateEnabledOnIPhone
-                    maxRefreshRate:FlutterDisplayLinkManager.shared.displayRefreshRate
-                          callback:callback];
-  _touchRateCorrectionVSyncClient.allowPauseAfterVsync = NO;
-}
-
-- (void)triggerTouchRateCorrectionIfNeeded:(NSSet*)touches {
-  if (_touchRateCorrectionVSyncClient == nil) {
-    // If the _touchRateCorrectionVSyncClient is not created, means current devices doesn't
-    // need to correct the touch rate. So just return.
-    return;
-  }
-
-  // As long as there is a touch's phase is UITouchPhaseBegan or UITouchPhaseMoved,
-  // activate the correction. Otherwise pause the correction.
-  BOOL isUserInteracting = NO;
-  for (UITouch* touch in touches) {
-    if (touch.phase == UITouchPhaseBegan || touch.phase == UITouchPhaseMoved) {
-      isUserInteracting = YES;
-      break;
-    }
-  }
-
-  if (isUserInteracting && self.engine.viewController == self) {
-    [_touchRateCorrectionVSyncClient await];
-  } else {
-    [_touchRateCorrectionVSyncClient pause];
-  }
-}
-
-- (void)invalidateTouchRateCorrectionVSyncClient {
-  [_touchRateCorrectionVSyncClient invalidate];
-  _touchRateCorrectionVSyncClient = nil;
-}
-
 #pragma mark - Handle view resizing
 
 - (void)updateViewportMetricsIfNeeded {
@@ -1390,27 +1320,12 @@ static flutter::PointerData::DeviceKind DeviceKindFromTouchType(UITouch* touch) 
   [self updateViewportMetricsIfNeeded];
 
   // There is no guarantee that UIKit will layout subviews when the application/scene is active.
-  // Creating the surface when inactive will cause GPU accesses from the background. Only wait for
-  // the first frame to render when the application/scene is actually active.
+  // Creating the surface when inactive will cause GPU accesses from the background, so only
+  // create the surface when the application/scene is actually active.
   // This must run after updateViewportMetrics so that the surface creation tasks are queued after
   // the viewport metrics update tasks.
   if (firstViewBoundsUpdate && self.stateIsActive && self.engine) {
     [self surfaceUpdated:YES];
-#if FLUTTER_RUNTIME_MODE == FLUTTER_RUNTIME_MODE_DEBUG
-    NSTimeInterval timeout = 0.2;
-#else
-    NSTimeInterval timeout = 0.1;
-#endif
-    [self.engine
-        waitForFirstFrameSync:timeout
-                     callback:^(BOOL didTimeout) {
-                       if (didTimeout) {
-                         [FlutterLogger logInfo:@"Timeout waiting for the first frame to render. "
-                                                 "This may happen in unoptimized builds. If this is"
-                                                 "a release build, you should load a less complex "
-                                                 "frame to avoid the timeout."];
-                       }
-                     }];
   }
 }
 

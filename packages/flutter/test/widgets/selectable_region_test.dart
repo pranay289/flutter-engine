@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+/// @docImport 'package:flutter/material.dart';
+library;
+
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -18,7 +21,6 @@ import 'keyboard_utils.dart';
 import 'process_text_utils.dart';
 import 'semantics_tester.dart';
 import 'test_page_tester.dart';
-import 'widgets_app_tester.dart';
 
 Offset textOffsetToPosition(RenderParagraph paragraph, int offset) {
   const caret = Rect.fromLTWH(0.0, 0.0, 2.0, 20.0);
@@ -4090,8 +4092,7 @@ void main() {
                   TextSpan(
                     children: <InlineSpan>[
                       const TextSpan(
-                        text:
-                            'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
+                        text: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
                       ),
                       WidgetSpan(child: FlutterLogo(key: flutterLogo)),
                       const TextSpan(text: 'Hello, world.'),
@@ -4135,8 +4136,7 @@ void main() {
                   const TextSpan(
                     children: <InlineSpan>[
                       TextSpan(
-                        text:
-                            'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
+                        text: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
                       ),
                       WidgetSpan(child: Text('Some text in a WidgetSpan. ')),
                       TextSpan(text: 'Hello, world.'),
@@ -4181,8 +4181,7 @@ void main() {
                 const TextSpan(
                   children: <InlineSpan>[
                     TextSpan(
-                      text:
-                          'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
+                      text: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
                     ),
                     WidgetSpan(child: SizedBox.shrink()),
                     TextSpan(text: 'Hello, world.'),
